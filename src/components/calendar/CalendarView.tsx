@@ -111,9 +111,9 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ onOpenNewEvent }) =>
     try {
       const res = await syncGoogleCalendar();
       setSyncFeedback(
-        `Synchronized successfully: ${res.imported} new events imported from Google Calendar.`
+        `Bi-directional sync successful: ${res.imported} pulled from Google, ${res.exported} exported to Google, ${res.matched} matched local, ${res.alertsCreated} alerts created.`
       );
-      setTimeout(() => setSyncFeedback(null), 4000);
+      setTimeout(() => setSyncFeedback(null), 6000);
     } catch (err: any) {
       setSyncFeedback(`Sync failed: ${err.message || 'Check connection or permissions'}`);
     } finally {
@@ -173,35 +173,14 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ onOpenNewEvent }) =>
         <div>
           <h1 className="text-xl sm:text-2xl font-black tracking-tight text-white uppercase flex items-center gap-2">
             <CalendarIcon className="h-5 w-5 text-[#ccff00]" />
-            SCHEDULE & EXAMINATIONS
+            IN-APP MASTER CALENDAR
           </h1>
           <p className="text-xs text-zinc-400 mt-0.5">
-            Synchronized calendar for exam dates, deadlines, training blocks, and Google Calendar
+            Command centre schedule for exam dates, academic deadlines, athletic training blocks, and study quotas
           </p>
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
-          {/* Google Calendar Sync Button */}
-          <button
-            onClick={handleSyncGoogleCalendar}
-            disabled={syncingGoogle}
-            className="flex items-center gap-1.5 rounded-lg bg-zinc-800 border border-zinc-700 px-3 py-2 text-xs font-bold text-white hover:bg-zinc-700 transition active:scale-95 disabled:opacity-50"
-            title="Synchronize with Google Calendar"
-          >
-            {syncingGoogle ? (
-              <RefreshCw className="h-3.5 w-3.5 animate-spin text-[#ccff00]" />
-            ) : (
-              <Share2 className="h-3.5 w-3.5 text-[#ccff00]" />
-            )}
-            <span>
-              {hasGoogleCalendarAccess
-                ? syncingGoogle
-                  ? 'Syncing Google Calendar...'
-                  : 'Sync Google Calendar'
-                : 'Connect Google Calendar'}
-            </span>
-          </button>
-
           <button
             onClick={() => onOpenNewEvent(selectedDateStr)}
             className="flex items-center gap-1.5 rounded-lg bg-[#ccff00] px-4 py-2 text-xs font-bold text-black hover:bg-[#b8e600] transition active:scale-95 shadow-md shadow-[#ccff00]/10"

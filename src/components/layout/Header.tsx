@@ -17,8 +17,14 @@ interface HeaderProps {
 }
 
 export const Header: React.FC<HeaderProps> = ({ onOpenProfile, onOpenNotifications }) => {
-  const { currentStreak, consistencyScore, syncState, unreadNotificationsCount, triggerManualSync } = usePace();
-  const { profile, isGuest, currentUser } = useAuth();
+  const {
+    currentStreak,
+    consistencyScore,
+    syncState,
+    unreadNotificationsCount,
+    triggerManualSync,
+  } = usePace();
+  const { profile, isGuest } = useAuth();
 
   return (
     <header className="sticky top-0 z-40 w-full border-b border-zinc-800/80 bg-[#070709]/90 backdrop-blur-md px-4 sm:px-6 py-3">
@@ -41,17 +47,18 @@ export const Header: React.FC<HeaderProps> = ({ onOpenProfile, onOpenNotificatio
         </div>
 
         {/* Center / Right Metrics & Quick Status */}
-        <div className="flex items-center gap-2 sm:gap-4">
-          {/* Sync status indicator */}
+        <div className="flex items-center gap-2 sm:gap-3">
+
+          {/* Cloud Database Sync status indicator */}
           <button
             onClick={triggerManualSync}
             title={
               syncState === 'syncing'
-                ? 'Syncing with cloud...'
+                ? 'Syncing with Firestore cloud...'
                 : syncState === 'offline'
                 ? 'Offline mode (changes saved locally)'
                 : syncState === 'synced'
-                ? 'Synced with cloud'
+                ? 'Synced with Firestore cloud'
                 : 'Online. Click to refresh sync'
             }
             className="flex items-center gap-1.5 rounded-full bg-zinc-900/90 px-2.5 py-1 text-xs border border-zinc-800 text-zinc-400 hover:border-zinc-700 transition"
@@ -71,14 +78,14 @@ export const Header: React.FC<HeaderProps> = ({ onOpenProfile, onOpenNotificatio
           </button>
 
           {/* Streak indicator */}
-          <div className="flex items-center gap-1.5 rounded-full bg-zinc-900/90 px-3 py-1 text-xs font-semibold border border-zinc-800">
+          <div className="flex items-center gap-1.5 rounded-full bg-zinc-900/90 px-2.5 sm:px-3 py-1 text-xs font-semibold border border-zinc-800">
             <Flame className="h-3.5 w-3.5 text-amber-400 fill-amber-400" />
             <span className="text-white">{currentStreak}</span>
             <span className="text-[10px] text-zinc-400 uppercase hidden sm:inline">Days</span>
           </div>
 
           {/* Consistency Badge */}
-          <div className="hidden lg:flex items-center gap-1.5 rounded-full bg-zinc-900/90 px-3 py-1 text-xs font-semibold border border-zinc-800">
+          <div className="hidden xl:flex items-center gap-1.5 rounded-full bg-zinc-900/90 px-3 py-1 text-xs font-semibold border border-zinc-800">
             <Zap className="h-3.5 w-3.5 text-[#ccff00]" />
             <span className="text-zinc-300">Consistency:</span>
             <span className="text-[#ccff00] font-bold">{consistencyScore}%</span>

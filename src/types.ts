@@ -81,18 +81,6 @@ export interface CalendarEvent {
   createdAt: string;
 }
 
-export type AspectRatioType = '1:1' | '2:3' | '3:2' | '3:4' | '4:3' | '9:16' | '16:9' | '21:9';
-
-export interface VisionPoster {
-  id: string;
-  userId: string;
-  title: string;
-  prompt: string;
-  aspectRatio: AspectRatioType;
-  imageUrl: string;
-  modelUsed?: string;
-  createdAt: string;
-}
 
 export interface UserProfile {
   userId: string;
@@ -103,7 +91,10 @@ export interface UserProfile {
   primarySport?: string;
   dailyGoalMissions: number;
   dailyGoalStudyMinutes: number;
+  dailyGoalTrainingMinutes?: number;
   notificationsEnabled: boolean;
+  googleCalendarSyncEnabled?: boolean;
+  googleCalendarLastSyncedAt?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -112,7 +103,7 @@ export interface NotificationItem {
   id: string;
   title: string;
   message: string;
-  type: 'deadline' | 'exam' | 'streak' | 'system';
+  type: 'deadline' | 'exam' | 'streak' | 'system' | 'google_calendar';
   date: string;
   read: boolean;
   linkTab?: string;

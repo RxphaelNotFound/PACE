@@ -7,10 +7,12 @@ import {
   Cloud,
   LogOut,
   RefreshCw,
-  Download,
   AlertTriangle,
   RotateCcw,
   Check,
+  Dumbbell,
+  BookOpen,
+  CheckSquare,
 } from 'lucide-react';
 
 interface ProfileModalProps {
@@ -24,8 +26,19 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   onClose,
   onOpenAuth,
 }) => {
-  const { currentUser, profile, updateUserProfile, logout, isGuest } = useAuth();
-  const { syncState, triggerManualSync, exportAppDataJson, resetToDefaultData } = usePace();
+  const {
+    currentUser,
+    profile,
+    updateUserProfile,
+    logout,
+    isGuest,
+  } = useAuth();
+
+  const {
+    syncState,
+    triggerManualSync,
+    resetToDefaultData,
+  } = usePace();
 
   const [displayName, setDisplayName] = useState(profile.displayName || '');
   const [goals, setGoals] = useState(profile.goals || '');
@@ -34,6 +47,9 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   const [dailyGoalMissions, setDailyGoalMissions] = useState(profile.dailyGoalMissions || 4);
   const [dailyGoalStudyMinutes, setDailyGoalStudyMinutes] = useState(
     profile.dailyGoalStudyMinutes || 120
+  );
+  const [dailyGoalTrainingMinutes, setDailyGoalTrainingMinutes] = useState(
+    profile.dailyGoalTrainingMinutes || 60
   );
   const [notificationsEnabled, setNotificationsEnabled] = useState(
     profile.notificationsEnabled ?? true
@@ -53,6 +69,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
       primarySport: primarySport.trim(),
       dailyGoalMissions: Number(dailyGoalMissions) || 4,
       dailyGoalStudyMinutes: Number(dailyGoalStudyMinutes) || 120,
+      dailyGoalTrainingMinutes: Number(dailyGoalTrainingMinutes) || 60,
       notificationsEnabled,
     });
     setSavedSuccess(true);
@@ -74,6 +91,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
       <div className="w-full max-w-lg rounded-2xl border border-zinc-800 bg-[#0c0c11] p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
+        {/* Header */}
         <div className="flex items-center justify-between pb-4 border-b border-zinc-800">
           <div className="flex items-center gap-2">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-zinc-900 border border-zinc-700 text-[#ccff00]">
@@ -91,7 +109,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
           </button>
         </div>
 
-        {/* Account / Sync Status Card */}
+        {/* Account / Cloud Status Card */}
         <div className="mt-4 rounded-xl border border-zinc-800 bg-zinc-950 p-4 space-y-3">
           <div className="flex items-center justify-between">
             <div>
@@ -204,33 +222,56 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-1">
-                Daily Mission Target
-              </label>
-              <input
-                type="number"
-                min="1"
-                max="20"
-                value={dailyGoalMissions}
-                onChange={(e) => setDailyGoalMissions(Number(e.target.value))}
-                className="w-full rounded-lg bg-zinc-950 border border-zinc-800 px-3 py-2 text-xs text-white focus:border-[#ccff00]"
-              />
+          {/* Daily Goals / Target Quotas */}
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-wider text-zinc-300 mb-2 flex items-center gap-1.5">
+              <span>Daily Target Quotas</span>
             </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <label className="block text-[11px] font-medium text-zinc-400 mb-1 flex items-center gap-1">
+                  <CheckSquare className="h-3 w-3 text-[#ccff00]" />
+                  <span>Missions Target</span>
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  max="20"
+                  value={dailyGoalMissions}
+                  onChange={(e) => setDailyGoalMissions(Number(e.target.value))}
+                  className="w-full rounded-lg bg-zinc-950 border border-zinc-800 px-3 py-2 text-xs text-white focus:border-[#ccff00]"
+                />
+              </div>
 
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-1">
-                Daily Study Target (Mins)
-              </label>
-              <input
-                type="number"
-                min="15"
-                max="600"
-                value={dailyGoalStudyMinutes}
-                onChange={(e) => setDailyGoalStudyMinutes(Number(e.target.value))}
-                className="w-full rounded-lg bg-zinc-950 border border-zinc-800 px-3 py-2 text-xs text-white focus:border-[#ccff00]"
-              />
+              <div>
+                <label className="block text-[11px] font-medium text-zinc-400 mb-1 flex items-center gap-1">
+                  <Dumbbell className="h-3 w-3 text-cyan-400" />
+                  <span>Training (Mins)</span>
+                </label>
+                <input
+                  type="number"
+                  min="15"
+                  max="360"
+                  value={dailyGoalTrainingMinutes}
+                  onChange={(e) => setDailyGoalTrainingMinutes(Number(e.target.value))}
+                  className="w-full rounded-lg bg-zinc-950 border border-zinc-800 px-3 py-2 text-xs text-white focus:border-[#ccff00]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-medium text-zinc-400 mb-1 flex items-center gap-1">
+                  <BookOpen className="h-3 w-3 text-blue-400" />
+                  <span>Study (Mins)</span>
+                </label>
+                <input
+                  type="number"
+                  min="15"
+                  max="600"
+                  value={dailyGoalStudyMinutes}
+                  onChange={(e) => setDailyGoalStudyMinutes(Number(e.target.value))}
+                  className="w-full rounded-lg bg-zinc-950 border border-zinc-800 px-3 py-2 text-xs text-white focus:border-[#ccff00]"
+                />
+              </div>
             </div>
           </div>
 

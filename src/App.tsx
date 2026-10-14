@@ -15,8 +15,9 @@ import { PerformanceView } from './components/performance/PerformanceView';
 import { StudyView } from './components/study/StudyView';
 import { CalendarView } from './components/calendar/CalendarView';
 import { AnalyticsView } from './components/analytics/AnalyticsView';
-import { VisionLabView } from './components/vision/VisionLabView';
 
+import { InAppAlertBanner } from './components/notifications/InAppAlertBanner';
+import { usePace } from './context/PaceContext';
 import { MissionModal } from './components/modals/MissionModal';
 import { TrainingModal } from './components/modals/TrainingModal';
 import { StudyModal } from './components/modals/StudyModal';
@@ -29,6 +30,7 @@ import { Mission, CalendarActivityType } from './types';
 
 function MainApp() {
   const { currentUser, isGuest, loading } = useAuth();
+  const { activeAlerts, dismissAlert } = usePace();
 
   const [activeTab, setActiveTab] = useState<NavigationTab>('dashboard');
 
@@ -141,9 +143,14 @@ function MainApp() {
         )}
 
         {activeTab === 'analytics' && <AnalyticsView />}
-
-        {activeTab === 'vision' && <VisionLabView />}
       </main>
+
+      {/* Floating In-App Alert Notifications for Synced Training & Deadlines */}
+      <InAppAlertBanner
+        alerts={activeAlerts}
+        onDismiss={dismissAlert}
+        onNavigateToCalendar={() => setActiveTab('calendar')}
+      />
 
       {/* Modals & Drawers */}
       <MissionModal

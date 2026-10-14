@@ -8,6 +8,7 @@ import {
   Flame,
   Check,
   Trash2,
+  Calendar,
 } from 'lucide-react';
 
 interface NotificationDrawerProps {
@@ -99,12 +100,20 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
                   }`}
                 >
                   <div className="flex items-start gap-2.5">
-                    {n.type === 'exam' && <AlertCircle className="h-4 w-4 text-red-400 mt-0.5" />}
-                    {n.type === 'deadline' && <Clock className="h-4 w-4 text-amber-400 mt-0.5" />}
-                    {n.type === 'streak' && <Flame className="h-4 w-4 text-orange-400 mt-0.5" />}
+                    {n.type === 'exam' && <AlertCircle className="h-4 w-4 text-red-400 mt-0.5 shrink-0" />}
+                    {n.type === 'deadline' && <Clock className="h-4 w-4 text-amber-400 mt-0.5 shrink-0" />}
+                    {n.type === 'streak' && <Flame className="h-4 w-4 text-orange-400 mt-0.5 shrink-0" />}
+                    {n.type === 'google_calendar' && <Calendar className="h-4 w-4 text-[#ccff00] mt-0.5 shrink-0" />}
 
                     <div className="flex-1 min-w-0">
-                      <div className="text-xs font-bold text-white">{n.title}</div>
+                      <div className="text-xs font-bold text-white flex items-center gap-1.5 flex-wrap">
+                        <span>{n.title}</span>
+                        {n.type === 'google_calendar' && (
+                          <span className="rounded bg-[#ccff00]/15 text-[#ccff00] text-[9px] font-bold px-1 py-0.2">
+                            G-Cal
+                          </span>
+                        )}
+                      </div>
                       <p className="text-[11px] text-zinc-400 mt-0.5">{n.message}</p>
                     </div>
                   </div>

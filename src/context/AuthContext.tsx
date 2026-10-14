@@ -24,6 +24,7 @@ interface AuthContextType {
   logout: () => Promise<void>;
   updateUserProfile: (updates: Partial<UserProfile>) => Promise<void>;
   hasGoogleCalendarAccess: boolean;
+  connectGoogleCalendar: () => Promise<boolean>;
 }
 
 const defaultProfile: UserProfile = {
@@ -116,6 +117,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const connectGoogleCalendar = async (): Promise<boolean> => {
+    const { user, accessToken } = await googleSignIn();
+    if (user && accessToken) {
+      setCurrentUser(user);
+      setIsGuest(false);
+      localStorage.removeItem('pace20_is_guest');
+      setHasGoogleCalendarAccess(true);
+      return true;
+    }
+    return false;
+  };
+
   const loginWithEmail = async (email: string, pass: string) => {
     const res = await emailSignIn(email, pass);
     setCurrentUser(res.user);
@@ -198,6 +211,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         logout,
         updateUserProfile,
         hasGoogleCalendarAccess,
+        connectGoogleCalendar,
       }}
     >
       {children}

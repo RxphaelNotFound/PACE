@@ -6,7 +6,6 @@ import {
   BookOpen,
   Calendar,
   BarChart2,
-  Sparkles,
 } from 'lucide-react';
 
 export type NavigationTab =
@@ -15,8 +14,7 @@ export type NavigationTab =
   | 'performance'
   | 'study'
   | 'calendar'
-  | 'analytics'
-  | 'vision';
+  | 'analytics';
 
 interface BottomNavProps {
   activeTab: NavigationTab;
@@ -31,7 +29,6 @@ export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, onTabChange }) 
     { id: 'study' as const, label: 'Study', icon: BookOpen },
     { id: 'calendar' as const, label: 'Schedule', icon: Calendar },
     { id: 'analytics' as const, label: 'Analytics', icon: BarChart2 },
-    { id: 'vision' as const, label: 'Vision AI', icon: Sparkles },
   ];
 
   return (

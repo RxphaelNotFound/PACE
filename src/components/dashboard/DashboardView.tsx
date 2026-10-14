@@ -10,12 +10,14 @@ import {
   BookOpen,
   Dumbbell,
   Calendar,
-  Sparkles,
   ArrowRight,
   Award,
   Clock,
   AlertCircle,
   TrendingUp,
+  Target,
+  Sparkles,
+  Zap,
 } from 'lucide-react';
 
 interface DashboardViewProps {
@@ -39,6 +41,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     todayTotalMissions,
     todayMissionPercentage,
     todayStudyMinutes,
+    todayTrainingMinutes,
+    todayTrainingCount,
+    todayTrainingGoalMinutes,
+    todayTrainingPercentage,
+    todayScheduledTrainingCount,
     currentStreak,
     consistencyScore,
     toggleMissionComplete,
@@ -47,6 +54,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   } = usePace();
   const { profile } = useAuth();
 
+  const [missionFilter, setMissionFilter] = useState<'all' | 'pending' | 'completed'>('all');
+
   const todayStr = new Date().toISOString().slice(0, 10);
   const formattedToday = new Date().toLocaleDateString(undefined, {
     weekday: 'long',
@@ -54,14 +63,35 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     day: 'numeric',
   });
 
-  // Today's missions
-  const todayMissions = missions.filter((m) => {
+  // Calculate mission goals and remaining tasks
+  const missionTarget = Math.max(profile.dailyGoalMissions || 4, todayTotalMissions, 1);
+  const missionsRemaining = Math.max(0, missionTarget - todayCompletedMissions);
+
+  // Training targets
+  const trainingTargetMins = profile.dailyGoalTrainingMinutes || 60;
+  const trainingRemainingMins = Math.max(0, trainingTargetMins - todayTrainingMinutes);
+
+  // Study targets
+  const studyTargetMins = profile.dailyGoalStudyMinutes || 120;
+  const studyPct = Math.min(100, Math.round((todayStudyMinutes / studyTargetMins) * 100));
+
+  // Today's missions with filtering
+  const allTodayMissions = missions.filter((m) => {
     if (m.status === 'completed' && m.completedAt?.startsWith(todayStr)) return true;
     if (m.deadline?.startsWith(todayStr)) return true;
     if (m.recurrence === 'daily') return true;
     if (m.status === 'active') return true;
     return false;
-  }).slice(0, 6);
+  });
+
+  const filteredMissions = allTodayMissions.filter((m) => {
+    if (missionFilter === 'pending') return m.status !== 'completed';
+    if (missionFilter === 'completed') return m.status === 'completed';
+    return true;
+  }).slice(0, 7);
+
+  const pendingCount = allTodayMissions.filter((m) => m.status !== 'completed').length;
+  const completedCount = allTodayMissions.filter((m) => m.status === 'completed').length;
 
   const getPriorityBadge = (p: string) => {
     switch (p) {
@@ -77,18 +107,20 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   return (
     <div className="space-y-6">
       {/* Hero Welcome & Quick Action Bar */}
-      <div className="relative overflow-hidden rounded-2xl border border-zinc-800 bg-[#0d0d12] p-5 sm:p-7 shadow-xl">
+      <div className="relative overflow-hidden rounded-2xl border border-zinc-800 bg-[#0d0d12] p-5 sm:p-6 shadow-xl">
         <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-5">
           <div>
-            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-zinc-400">
-              <span className="h-2 w-2 rounded-full bg-[#ccff00] animate-pulse"></span>
-              {formattedToday} • {profile.primaryFocus || 'Dual Athlete-Student'}
+            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-zinc-400">
+              <span className="h-2 w-2 rounded-full bg-[#ccff00] animate-pulse" />
+              <span>{formattedToday}</span>
+              <span>•</span>
+              <span className="text-zinc-300">{profile.primaryFocus || 'Dual Athlete-Student'}</span>
             </div>
             <h1 className="mt-1 text-2xl sm:text-3xl font-black tracking-tight text-white uppercase">
-              COMMAND READY,{' '}
+              READY FOR ACTION,{' '}
               <span className="text-[#ccff00]">{profile.displayName || 'ATHLETE'}</span>
             </h1>
-            <p className="mt-1.5 text-xs sm:text-sm text-zinc-400 max-w-xl">
+            <p className="mt-1 text-xs sm:text-sm text-zinc-400 max-w-xl line-clamp-2">
               {profile.goals || 'Execute today’s training benchmarks, study quotas, and active missions.'}
             </p>
           </div>
@@ -96,245 +128,374 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           {/* Quick Action Buttons */}
           <div className="flex flex-wrap items-center gap-2">
             <button
+              type="button"
               onClick={onOpenNewMission}
               className="flex items-center gap-1.5 rounded-lg bg-[#ccff00] px-3.5 py-2 text-xs font-bold text-black hover:bg-[#b8e600] transition active:scale-95 shadow-md shadow-[#ccff00]/10"
+              title="Add a new mission"
             >
               <Plus className="h-3.5 w-3.5" />
               <span>Mission</span>
             </button>
             <button
+              type="button"
               onClick={onOpenNewTraining}
               className="flex items-center gap-1.5 rounded-lg bg-zinc-800 border border-zinc-700 px-3.5 py-2 text-xs font-bold text-white hover:bg-zinc-700 transition active:scale-95"
+              title="Log workout or race result"
             >
-              <Dumbbell className="h-3.5 w-3.5 text-[#ccff00]" />
-              <span>Athletic Log</span>
+              <Dumbbell className="h-3.5 w-3.5 text-cyan-400" />
+              <span>Workout</span>
             </button>
             <button
+              type="button"
               onClick={onOpenNewStudy}
               className="flex items-center gap-1.5 rounded-lg bg-zinc-800 border border-zinc-700 px-3.5 py-2 text-xs font-bold text-white hover:bg-zinc-700 transition active:scale-95"
+              title="Record a study block"
             >
               <BookOpen className="h-3.5 w-3.5 text-blue-400" />
               <span>Study Session</span>
             </button>
             <button
+              type="button"
               onClick={onOpenNewEvent}
               className="flex items-center gap-1.5 rounded-lg bg-zinc-800 border border-zinc-700 px-3 py-2 text-xs font-bold text-white hover:bg-zinc-700 transition active:scale-95"
+              title="Schedule an in-app calendar event"
             >
               <Calendar className="h-3.5 w-3.5 text-amber-400" />
-              <span>Schedule</span>
+              <span>Event</span>
             </button>
           </div>
         </div>
 
         {/* Subtle background glow */}
-        <div className="absolute -right-20 -bottom-20 h-60 w-60 rounded-full bg-[#ccff00]/5 blur-3xl pointer-events-none" />
+        <div className="absolute -right-20 -bottom-20 h-56 w-56 rounded-full bg-[#ccff00]/5 blur-3xl pointer-events-none" />
       </div>
 
-      {/* 4 Core Vital Performance Metrics */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-        {/* Metric 1: Today's Mission Completion */}
-        <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/60 p-4 backdrop-blur-sm">
+      {/* 4 Core Daily Performance Widgets */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+        {/* Widget 1: Missions Completion */}
+        <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/60 p-4 backdrop-blur-sm hover:border-zinc-700 transition">
           <div className="flex items-center justify-between text-zinc-400 text-xs font-semibold uppercase tracking-wider">
-            <span>Missions Today</span>
-            <CheckCircle2 className="h-4 w-4 text-[#ccff00]" />
+            <span className="flex items-center gap-1.5">
+              <CheckCircle2 className="h-4 w-4 text-[#ccff00]" />
+              Missions Today
+            </span>
+            <button
+              type="button"
+              onClick={onOpenNewMission}
+              className="text-zinc-500 hover:text-[#ccff00] transition"
+              title="Add mission"
+            >
+              <Plus className="h-3.5 w-3.5" />
+            </button>
           </div>
           <div className="mt-2 flex items-baseline gap-2">
             <span className="text-2xl sm:text-3xl font-black text-white">
               {todayCompletedMissions}
             </span>
-            <span className="text-xs text-zinc-500 font-semibold">/ {todayTotalMissions} Done</span>
+            <span className="text-xs text-zinc-400 font-semibold">
+              of {missionTarget} completed
+            </span>
           </div>
           {/* Progress bar */}
-          <div className="mt-3 h-1.5 w-full rounded-full bg-zinc-800 overflow-hidden">
+          <div className="mt-3 h-2 w-full rounded-full bg-zinc-800 overflow-hidden">
             <div
               className="h-full rounded-full bg-[#ccff00] transition-all duration-500"
-              style={{ width: `${todayMissionPercentage}%` }}
+              style={{ width: `${Math.min(100, Math.round((todayCompletedMissions / missionTarget) * 100))}%` }}
             />
           </div>
-          <div className="mt-1.5 text-[10px] text-zinc-400 font-medium flex justify-between">
-            <span>Completion Rate</span>
-            <span className="text-[#ccff00] font-bold">{todayMissionPercentage}%</span>
+          <div className="mt-2 text-[11px] text-zinc-400 font-medium flex items-center justify-between">
+            <span>
+              {missionsRemaining === 0 ? (
+                <span className="text-[#ccff00] font-bold">All clear today! 🔥</span>
+              ) : (
+                `${missionsRemaining} task${missionsRemaining > 1 ? 's' : ''} left`
+              )}
+            </span>
+            <span className="text-[#ccff00] font-bold">
+              {Math.min(100, Math.round((todayCompletedMissions / missionTarget) * 100))}%
+            </span>
           </div>
         </div>
 
-        {/* Metric 2: Consistency Score */}
-        <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/60 p-4 backdrop-blur-sm">
+        {/* Widget 2: Athletic Training Volume & Sessions */}
+        <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/60 p-4 backdrop-blur-sm hover:border-zinc-700 transition">
           <div className="flex items-center justify-between text-zinc-400 text-xs font-semibold uppercase tracking-wider">
-            <span>30D Consistency</span>
-            <TrendingUp className="h-4 w-4 text-emerald-400" />
+            <span className="flex items-center gap-1.5">
+              <Dumbbell className="h-4 w-4 text-cyan-400" />
+              Athletic Training
+            </span>
+            <button
+              type="button"
+              onClick={onOpenNewTraining}
+              className="text-zinc-500 hover:text-cyan-400 transition"
+              title="Log workout"
+            >
+              <Plus className="h-3.5 w-3.5" />
+            </button>
           </div>
           <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-2xl sm:text-3xl font-black text-[#ccff00]">
-              {consistencyScore}%
+            <span className="text-2xl sm:text-3xl font-black text-white">
+              {todayTrainingMinutes}m
             </span>
-            <span className="text-xs text-zinc-500 font-semibold">Target: 85%</span>
+            <span className="text-xs text-zinc-400 font-semibold">
+              of {trainingTargetMins}m goal
+            </span>
           </div>
-          <div className="mt-3 h-1.5 w-full rounded-full bg-zinc-800 overflow-hidden">
+          {/* Progress bar */}
+          <div className="mt-3 h-2 w-full rounded-full bg-zinc-800 overflow-hidden">
             <div
-              className="h-full rounded-full bg-emerald-400 transition-all duration-500"
-              style={{ width: `${consistencyScore}%` }}
+              className="h-full rounded-full bg-gradient-to-r from-cyan-500 to-cyan-400 transition-all duration-500"
+              style={{ width: `${todayTrainingPercentage}%` }}
             />
           </div>
-          <div className="mt-1.5 text-[10px] text-zinc-400 font-medium flex justify-between">
-            <span>Discipline index</span>
-            <span className="text-emerald-400 font-bold">
-              {consistencyScore >= 80 ? 'Elite' : consistencyScore >= 60 ? 'Consistent' : 'Building'}
+          <div className="mt-2 text-[11px] text-zinc-400 font-medium flex items-center justify-between">
+            <span>
+              {todayTrainingPercentage >= 100 ? (
+                <span className="text-cyan-400 font-bold">Target crushed! ⚡</span>
+              ) : todayTrainingCount > 0 ? (
+                `${todayTrainingCount} session logged`
+              ) : todayScheduledTrainingCount > 0 ? (
+                <span className="text-amber-400 font-medium">Workout scheduled</span>
+              ) : (
+                `${trainingRemainingMins}m remaining`
+              )}
             </span>
+            <span className="text-cyan-400 font-bold">{todayTrainingPercentage}%</span>
           </div>
         </div>
 
-        {/* Metric 3: Today's Study Time */}
-        <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/60 p-4 backdrop-blur-sm">
+        {/* Widget 3: Study Focus Time */}
+        <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/60 p-4 backdrop-blur-sm hover:border-zinc-700 transition">
           <div className="flex items-center justify-between text-zinc-400 text-xs font-semibold uppercase tracking-wider">
-            <span>Study Focus Today</span>
-            <Clock className="h-4 w-4 text-blue-400" />
+            <span className="flex items-center gap-1.5">
+              <BookOpen className="h-4 w-4 text-blue-400" />
+              Study Focus
+            </span>
+            <button
+              type="button"
+              onClick={onOpenNewStudy}
+              className="text-zinc-500 hover:text-blue-400 transition"
+              title="Add study session"
+            >
+              <Plus className="h-3.5 w-3.5" />
+            </button>
           </div>
           <div className="mt-2 flex items-baseline gap-2">
             <span className="text-2xl sm:text-3xl font-black text-white">
               {Math.floor(todayStudyMinutes / 60)}h {todayStudyMinutes % 60}m
             </span>
+            <span className="text-xs text-zinc-400 font-semibold">
+              of {studyTargetMins}m goal
+            </span>
           </div>
-          <div className="mt-3 h-1.5 w-full rounded-full bg-zinc-800 overflow-hidden">
+          {/* Progress bar */}
+          <div className="mt-3 h-2 w-full rounded-full bg-zinc-800 overflow-hidden">
             <div
-              className="h-full rounded-full bg-blue-400 transition-all duration-500"
-              style={{
-                width: `${Math.min(100, Math.round((todayStudyMinutes / (profile.dailyGoalStudyMinutes || 120)) * 100))}%`,
-              }}
+              className="h-full rounded-full bg-blue-500 transition-all duration-500"
+              style={{ width: `${studyPct}%` }}
             />
           </div>
-          <div className="mt-1.5 text-[10px] text-zinc-400 font-medium flex justify-between">
-            <span>Goal: {profile.dailyGoalStudyMinutes || 120}m</span>
-            <span className="text-blue-400 font-bold">
-              {Math.min(100, Math.round((todayStudyMinutes / (profile.dailyGoalStudyMinutes || 120)) * 100))}%
+          <div className="mt-2 text-[11px] text-zinc-400 font-medium flex items-center justify-between">
+            <span>
+              {studyPct >= 100 ? (
+                <span className="text-blue-400 font-bold">Goal achieved 📚</span>
+              ) : (
+                `${Math.max(0, studyTargetMins - todayStudyMinutes)}m left`
+              )}
             </span>
+            <span className="text-blue-400 font-bold">{studyPct}%</span>
           </div>
         </div>
 
-        {/* Metric 4: Current Activity Streak */}
-        <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/60 p-4 backdrop-blur-sm">
+        {/* Widget 4: Consistency & Active Streak */}
+        <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/60 p-4 backdrop-blur-sm hover:border-zinc-700 transition">
           <div className="flex items-center justify-between text-zinc-400 text-xs font-semibold uppercase tracking-wider">
-            <span>Active Streak</span>
-            <Flame className="h-4 w-4 text-amber-400 fill-amber-400" />
+            <span className="flex items-center gap-1.5">
+              <Flame className="h-4 w-4 text-amber-400 fill-amber-400" />
+              Consistency & Streak
+            </span>
+            <span className="text-[10px] text-amber-400 font-bold uppercase tracking-wider">
+              {consistencyScore >= 80 ? 'Elite' : consistencyScore >= 60 ? 'Consistent' : 'Building'}
+            </span>
           </div>
           <div className="mt-2 flex items-baseline gap-2">
             <span className="text-2xl sm:text-3xl font-black text-white">{currentStreak}</span>
-            <span className="text-xs text-zinc-500 font-semibold">Consecutive Days</span>
+            <span className="text-xs text-zinc-400 font-semibold">Days Streak</span>
+            <span className="text-xs text-zinc-500">•</span>
+            <span className="text-xs text-[#ccff00] font-bold">{consistencyScore}% 30D</span>
           </div>
+          {/* 7-day streak visual pills */}
           <div className="mt-3 flex items-center gap-1">
             {[1, 2, 3, 4, 5, 6, 7].map((dayIdx) => (
               <div
                 key={dayIdx}
-                className={`h-1.5 flex-1 rounded-full ${
+                className={`h-2 flex-1 rounded-full ${
                   dayIdx <= (currentStreak % 7 || (currentStreak > 0 ? 7 : 0))
-                    ? 'bg-amber-400'
+                    ? 'bg-amber-400 shadow-[0_0_6px_rgba(251,191,36,0.3)]'
                     : 'bg-zinc-800'
                 }`}
               />
             ))}
           </div>
-          <div className="mt-1.5 text-[10px] text-zinc-400 font-medium flex justify-between">
-            <span>Keep momentum alive</span>
-            <span className="text-amber-400 font-bold">🔥 Hot</span>
+          <div className="mt-2 text-[11px] text-zinc-400 font-medium flex items-center justify-between">
+            <span>Keep discipline high</span>
+            <span className="text-amber-400 font-bold flex items-center gap-1">
+              <Zap className="h-3 w-3" /> Daily Streak
+            </span>
           </div>
         </div>
       </div>
 
-      {/* Consistency Engine Heat Map */}
-      <ConsistencyHeatMap />
-
       {/* 2-Column Split: Active Missions & Schedules / PRs */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left 2 Cols: Today's High-Impact Missions */}
-        <div className="lg:col-span-2 rounded-xl border border-zinc-800/80 bg-zinc-900/60 p-5 backdrop-blur-sm">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h2 className="text-sm font-bold tracking-wide uppercase text-white flex items-center gap-2">
-                <CheckCircle2 className="h-4 w-4 text-[#ccff00]" />
-                Today's Priority Missions
-              </h2>
-              <p className="text-xs text-zinc-400">
-                Action items required to preserve discipline and progress
-              </p>
-            </div>
-            <button
-              onClick={() => onNavigateTab('missions')}
-              className="text-xs font-bold text-[#ccff00] hover:underline flex items-center gap-1"
-            >
-              All Missions <ArrowRight className="h-3 w-3" />
-            </button>
-          </div>
+        {/* Left 2 Cols: Today's High-Impact Missions Widget & Consistency Heat Map */}
+        <div className="lg:col-span-2 space-y-6">
+          {/* Priority Missions Widget */}
+          <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/60 p-5 backdrop-blur-sm">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+              <div>
+                <h2 className="text-sm font-bold tracking-wide uppercase text-white flex items-center gap-2">
+                  <CheckCircle2 className="h-4 w-4 text-[#ccff00]" />
+                  Today's Priority Missions
+                  <span className="ml-1.5 rounded-full bg-zinc-800 px-2 py-0.5 text-[10px] font-bold text-zinc-300">
+                    {allTodayMissions.length}
+                  </span>
+                </h2>
+                <p className="text-xs text-zinc-400">
+                  Disciplined action items to complete today
+                </p>
+              </div>
 
-          {todayMissions.length === 0 ? (
-            <div className="py-8 text-center rounded-lg border border-dashed border-zinc-800">
-              <CheckCircle2 className="mx-auto h-8 w-8 text-zinc-600 mb-2" />
-              <p className="text-xs font-semibold text-zinc-400">No active missions scheduled for today</p>
-              <button
-                onClick={onOpenNewMission}
-                className="mt-3 rounded-lg bg-zinc-800 px-3 py-1.5 text-xs font-bold text-[#ccff00] hover:bg-zinc-700 transition"
-              >
-                + Create Today's First Mission
-              </button>
-            </div>
-          ) : (
-            <div className="space-y-2.5">
-              {todayMissions.map((m) => {
-                const isDone = m.status === 'completed';
-                return (
-                  <div
-                    key={m.id}
-                    className={`flex items-start gap-3 rounded-lg border p-3 transition-all ${
-                      isDone
-                        ? 'bg-zinc-950/40 border-zinc-900 text-zinc-500'
-                        : 'bg-zinc-950/90 border-zinc-800/90 hover:border-zinc-700 text-zinc-200'
+              {/* Filter Tabs & Quick Action */}
+              <div className="flex items-center gap-2">
+                <div className="flex items-center rounded-lg bg-zinc-950 p-0.5 border border-zinc-800 text-[11px]">
+                  <button
+                    type="button"
+                    onClick={() => setMissionFilter('all')}
+                    className={`rounded-md px-2 py-1 font-semibold transition ${
+                      missionFilter === 'all'
+                        ? 'bg-zinc-800 text-white'
+                        : 'text-zinc-400 hover:text-white'
                     }`}
                   >
-                    <button
-                      onClick={() => toggleMissionComplete(m.id)}
-                      className="mt-0.5 text-zinc-500 hover:text-[#ccff00] transition active:scale-90"
-                    >
-                      {isDone ? (
-                        <CheckCircle2 className="h-5 w-5 text-[#ccff00]" />
-                      ) : (
-                        <Circle className="h-5 w-5 text-zinc-600" />
-                      )}
-                    </button>
+                    All ({allTodayMissions.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMissionFilter('pending')}
+                    className={`rounded-md px-2 py-1 font-semibold transition ${
+                      missionFilter === 'pending'
+                        ? 'bg-zinc-800 text-[#ccff00]'
+                        : 'text-zinc-400 hover:text-white'
+                    }`}
+                  >
+                    Pending ({pendingCount})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMissionFilter('completed')}
+                    className={`rounded-md px-2 py-1 font-semibold transition ${
+                      missionFilter === 'completed'
+                        ? 'bg-zinc-800 text-emerald-400'
+                        : 'text-zinc-400 hover:text-white'
+                    }`}
+                  >
+                    Done ({completedCount})
+                  </button>
+                </div>
 
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span
-                          className={`text-xs font-bold ${
-                            isDone ? 'line-through text-zinc-500' : 'text-white'
-                          }`}
-                        >
-                          {m.title}
-                        </span>
-                        <span
-                          className={`rounded px-1.5 py-0.5 text-[9px] font-bold uppercase border ${getPriorityBadge(
-                            m.priority
-                          )}`}
-                        >
-                          {m.priority}
-                        </span>
-                        <span className="rounded bg-zinc-900 px-1.5 py-0.5 text-[9px] font-semibold text-zinc-400 border border-zinc-800">
-                          {m.category}
-                        </span>
-                      </div>
-                      {m.description && (
-                        <p className="mt-1 text-[11px] text-zinc-400 truncate">
-                          {m.description}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
+                <button
+                  type="button"
+                  onClick={() => onNavigateTab('missions')}
+                  className="hidden sm:flex text-xs font-bold text-[#ccff00] hover:underline items-center gap-1"
+                >
+                  View All <ArrowRight className="h-3 w-3" />
+                </button>
+              </div>
             </div>
-          )}
+
+            {filteredMissions.length === 0 ? (
+              <div className="py-8 text-center rounded-lg border border-dashed border-zinc-800">
+                <CheckCircle2 className="mx-auto h-8 w-8 text-[#ccff00]/60 mb-2" />
+                <p className="text-xs font-semibold text-zinc-300">
+                  {missionFilter === 'completed'
+                    ? 'No missions completed yet today. Tackle one now!'
+                    : 'All clear! No pending missions remaining for today.'}
+                </p>
+                <button
+                  type="button"
+                  onClick={onOpenNewMission}
+                  className="mt-3 rounded-lg bg-zinc-800 px-3 py-1.5 text-xs font-bold text-[#ccff00] hover:bg-zinc-700 transition"
+                >
+                  + Add New Mission
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {filteredMissions.map((m) => {
+                  const isDone = m.status === 'completed';
+                  return (
+                    <div
+                      key={m.id}
+                      className={`group flex items-start gap-3 rounded-xl border p-3 transition-all ${
+                        isDone
+                          ? 'bg-zinc-950/40 border-zinc-900/80 text-zinc-500'
+                          : 'bg-zinc-950/90 border-zinc-800/90 hover:border-zinc-700 text-zinc-200'
+                      }`}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => toggleMissionComplete(m.id)}
+                        className="mt-0.5 text-zinc-500 hover:text-[#ccff00] transition active:scale-90"
+                        title={isDone ? 'Mark as incomplete' : 'Mark as complete'}
+                      >
+                        {isDone ? (
+                          <CheckCircle2 className="h-5 w-5 text-[#ccff00]" />
+                        ) : (
+                          <Circle className="h-5 w-5 text-zinc-600 group-hover:text-zinc-400" />
+                        )}
+                      </button>
+
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span
+                            className={`text-xs font-bold ${
+                              isDone ? 'line-through text-zinc-500' : 'text-white'
+                            }`}
+                          >
+                            {m.title}
+                          </span>
+                          <span
+                            className={`rounded px-1.5 py-0.5 text-[9px] font-bold uppercase border ${getPriorityBadge(
+                              m.priority
+                            )}`}
+                          >
+                            {m.priority}
+                          </span>
+                          <span className="rounded bg-zinc-900 px-1.5 py-0.5 text-[9px] font-semibold text-zinc-400 border border-zinc-800">
+                            {m.category}
+                          </span>
+                        </div>
+                        {m.description && (
+                          <p className="mt-1 text-[11px] text-zinc-400 truncate">
+                            {m.description}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Consistency Engine Heat Map Widget */}
+          <ConsistencyHeatMap />
         </div>
 
         {/* Right 1 Col: Upcoming Examinations & Recent PBs */}
         <div className="space-y-6">
-          {/* Upcoming Examinations and Deadlines */}
+          {/* Upcoming Examinations and Deadlines Widget */}
           <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/60 p-5 backdrop-blur-sm">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-xs font-bold tracking-wide uppercase text-white flex items-center gap-2">
@@ -342,24 +503,27 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 Deadlines & Exams
               </h3>
               <button
+                type="button"
                 onClick={() => onNavigateTab('calendar')}
                 className="text-[11px] font-bold text-zinc-400 hover:text-white"
               >
-                Calendar
+                Calendar →
               </button>
             </div>
 
             {upcomingDeadlinesAndExams.length === 0 ? (
-              <p className="text-xs text-zinc-500 py-3">No impending examinations in next 14 days.</p>
+              <p className="text-xs text-zinc-500 py-3">
+                No impending examinations in the next 14 days.
+              </p>
             ) : (
               <div className="space-y-2">
-                {upcomingDeadlinesAndExams.slice(0, 3).map((item) => {
+                {upcomingDeadlinesAndExams.slice(0, 4).map((item) => {
                   const date = new Date(item.startDate);
                   const isExam = item.type === 'exam';
                   return (
                     <div
                       key={item.id}
-                      className="rounded-lg bg-zinc-950 border border-zinc-800/80 p-2.5 flex items-start gap-2.5"
+                      className="rounded-lg bg-zinc-950 border border-zinc-800/80 p-2.5 flex items-start gap-2.5 hover:border-zinc-700 transition"
                     >
                       <div
                         className={`mt-0.5 h-2 w-2 rounded-full ${
@@ -396,7 +560,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             )}
           </div>
 
-          {/* Recent Athletic Personal Bests */}
+          {/* Recent Athletic Personal Bests Widget */}
           <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/60 p-5 backdrop-blur-sm">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-xs font-bold tracking-wide uppercase text-white flex items-center gap-2">
@@ -404,23 +568,24 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 Recent Personal Bests
               </h3>
               <button
+                type="button"
                 onClick={() => onNavigateTab('performance')}
                 className="text-[11px] font-bold text-zinc-400 hover:text-white"
               >
-                Log
+                Log PB →
               </button>
             </div>
 
             {recentPBs.length === 0 ? (
               <p className="text-xs text-zinc-500 py-3">
-                No personal bests recorded yet. Record your time trials and lifts!
+                No personal bests recorded yet. Record your time trials, lifts, and benchmark sprints!
               </p>
             ) : (
               <div className="space-y-2">
-                {recentPBs.map((pb) => (
+                {recentPBs.slice(0, 4).map((pb) => (
                   <div
                     key={pb.id}
-                    className="rounded-lg bg-zinc-950 border border-zinc-800/80 p-2.5 flex items-center justify-between"
+                    className="rounded-lg bg-zinc-950 border border-zinc-800/80 p-2.5 flex items-center justify-between hover:border-zinc-700 transition"
                   >
                     <div>
                       <div className="text-xs font-bold text-white">{pb.title}</div>

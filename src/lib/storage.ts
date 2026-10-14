@@ -12,7 +12,6 @@ import {
   StudySession,
   Subject,
   CalendarEvent,
-  VisionPoster,
   UserProfile,
 } from '../types';
 
@@ -23,7 +22,6 @@ export interface PaceAppData {
   studySessions: StudySession[];
   subjects: Subject[];
   calendarEvents: CalendarEvent[];
-  visionPosters: VisionPoster[];
 }
 
 const STORAGE_KEY_PREFIX = 'pace20_data_';
@@ -294,33 +292,9 @@ export function getInitialDemoData(userId: string = 'guest'): PaceAppData {
     },
   ];
 
-  const visionPosters: VisionPoster[] = [
-    {
-      id: 'vp1',
-      userId,
-      title: 'Championship Drive',
-      prompt: 'Cinematic sprinter in starting blocks under electric lime neon lights',
-      aspectRatio: '16:9',
-      imageUrl: '/src/assets/images/pace_hero_banner_1791994168324.jpg',
-      modelUsed: 'gemini-nano-banana-2.1',
-      createdAt: new Date().toISOString(),
-    },
-    {
-      id: 'vp2',
-      userId,
-      title: 'Deep Focus Lab',
-      prompt: 'Minimalist study desk with stopwatch and neon lime edge glow',
-      aspectRatio: '4:3',
-      imageUrl: '/src/assets/images/pace_study_focus_1791994169873.jpg',
-      modelUsed: 'gemini-nano-banana-2.1',
-      createdAt: new Date().toISOString(),
-    },
-  ];
-
   const profile: UserProfile = {
     userId,
     displayName: 'Alex Mercer',
-    email: 'athlete.student@pace.io',
     goals: 'Sub-6.80s in 60m dash and 4.0 GPA in semester examinations',
     primaryFocus: 'Dual Athlete-Student',
     primarySport: 'Track & Field / Sprint',
@@ -338,7 +312,6 @@ export function getInitialDemoData(userId: string = 'guest'): PaceAppData {
     studySessions,
     subjects,
     calendarEvents,
-    visionPosters,
   };
 }
 
@@ -425,7 +398,7 @@ export async function syncFromFirestore(userId: string): Promise<PaceAppData | n
     await flushMutationQueue();
 
     // 2. Fetch all collections in parallel
-    const [missionsSnap, trainingSnap, studySnap, subjectsSnap, calSnap, visionSnap] =
+    const [missionsSnap, trainingSnap, studySnap, subjectsSnap, calSnap] =
       await Promise.all([
         getDocs(collection(db, 'users', userId, 'missions')).catch((e) => {
           handleFirestoreError(e, OperationType.LIST, `users/${userId}/missions`);
@@ -441,9 +414,6 @@ export async function syncFromFirestore(userId: string): Promise<PaceAppData | n
         }),
         getDocs(collection(db, 'users', userId, 'calendarEvents')).catch((e) => {
           handleFirestoreError(e, OperationType.LIST, `users/${userId}/calendarEvents`);
-        }),
-        getDocs(collection(db, 'users', userId, 'visionPosters')).catch((e) => {
-          handleFirestoreError(e, OperationType.LIST, `users/${userId}/visionPosters`);
         }),
       ]);
 
@@ -461,9 +431,6 @@ export async function syncFromFirestore(userId: string): Promise<PaceAppData | n
 
     const calendarEvents: CalendarEvent[] = [];
     calSnap?.forEach((d) => calendarEvents.push(d.data() as CalendarEvent));
-
-    const visionPosters: VisionPoster[] = [];
-    visionSnap?.forEach((d) => visionPosters.push(d.data() as VisionPoster));
 
     // If cloud is empty (brand new cloud user), upload local data to bootstrap
     const local = loadLocalData(userId);
@@ -484,7 +451,6 @@ export async function syncFromFirestore(userId: string): Promise<PaceAppData | n
       studySessions: studySessions.length ? studySessions : local.studySessions,
       subjects: subjects.length ? subjects : local.subjects,
       calendarEvents: calendarEvents.length ? calendarEvents : local.calendarEvents,
-      visionPosters: visionPosters.length ? visionPosters : local.visionPosters,
     };
 
     saveLocalData(userId, mergedData);
@@ -512,9 +478,6 @@ export async function bootstrapCloudData(userId: string, data: PaceAppData) {
     }
     for (const c of data.calendarEvents) {
       await setDoc(doc(db, 'users', userId, 'calendarEvents', c.id), c);
-    }
-    for (const v of data.visionPosters) {
-      await setDoc(doc(db, 'users', userId, 'visionPosters', v.id), v);
     }
   } catch (err) {
     console.error('Error bootstrapping cloud data:', err);

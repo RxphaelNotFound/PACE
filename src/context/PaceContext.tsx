@@ -6,11 +6,10 @@ import {
   StudySession,
   Subject,
   CalendarEvent,
-  VisionPoster,
   NotificationItem,
   ConsistencyDay,
-  MissionCategory,
 } from '../types';
+import { InAppAlertData } from '../components/notifications/InAppAlertBanner';
 import { useAuth } from './AuthContext';
 import {
   loadLocalData,
@@ -22,9 +21,15 @@ import {
 } from '../lib/storage';
 import { doc, setDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import { fetchGoogleCalendarEvents, createGoogleCalendarEvent, deleteGoogleCalendarEvent } from '../lib/calendarApi';
+import {
+  fetchGoogleCalendarEvents,
+  createGoogleCalendarEvent,
+  deleteGoogleCalendarEvent,
+  isEventDuplicateOrMatch,
+} from '../lib/calendarApi';
 
 export type SyncState = 'online' | 'offline' | 'syncing' | 'synced' | 'error';
+export type GoogleSyncStatus = 'disconnected' | 'active' | 'syncing' | 'error';
 
 interface PaceContextType {
   // Collections
@@ -33,14 +38,29 @@ interface PaceContextType {
   studySessions: StudySession[];
   subjects: Subject[];
   calendarEvents: CalendarEvent[];
-  visionPosters: VisionPoster[];
   notifications: NotificationItem[];
   unreadNotificationsCount: number;
+  activeAlerts: InAppAlertData[];
+  dismissAlert: (id: string) => void;
+  simulateImportedCalendarEvent: (category: 'training' | 'deadline') => void;
 
-  // Sync state
+  // Cloud Sync state
   syncState: SyncState;
   lastSyncedAt: Date | null;
   triggerManualSync: () => Promise<void>;
+
+  // Google Calendar Sync state & controls
+  googleSyncStatus: GoogleSyncStatus;
+  googleSyncError: string | null;
+  lastGoogleSyncedAt: Date | null;
+  isGoogleSyncEnabled: boolean;
+  setGoogleSyncEnabled: (enabled: boolean) => Promise<void>;
+  syncGoogleCalendar: () => Promise<{
+    imported: number;
+    exported: number;
+    matched: number;
+    alertsCreated: number;
+  }>;
 
   // Mission actions
   addMission: (data: Omit<Mission, 'id' | 'userId' | 'createdAt' | 'updatedAt' | 'status'>) => Promise<void>;
@@ -63,11 +83,7 @@ interface PaceContextType {
   // Calendar actions
   addCalendarEvent: (data: Omit<CalendarEvent, 'id' | 'userId' | 'createdAt'>, syncToGoogle?: boolean) => Promise<void>;
   deleteCalendarEvent: (id: string, userConfirmed: boolean) => Promise<void>;
-  syncGoogleCalendar: () => Promise<{ imported: number; exported: number }>;
 
-  // Vision actions
-  addVisionPoster: (poster: Omit<VisionPoster, 'id' | 'userId' | 'createdAt'>) => Promise<void>;
-  deleteVisionPoster: (id: string) => Promise<void>;
 
   // Notifications
   markNotificationRead: (id: string) => void;
@@ -79,6 +95,11 @@ interface PaceContextType {
   todayTotalMissions: number;
   todayMissionPercentage: number;
   todayStudyMinutes: number;
+  todayTrainingMinutes: number;
+  todayTrainingCount: number;
+  todayTrainingGoalMinutes: number;
+  todayTrainingPercentage: number;
+  todayScheduledTrainingCount: number;
   currentStreak: number;
   longestStreak: number;
   consistencyScore: number;
@@ -95,13 +116,42 @@ interface PaceContextType {
 const PaceContext = createContext<PaceContextType | undefined>(undefined);
 
 export const PaceProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { currentUser } = useAuth();
+  const { currentUser, profile, updateUserProfile, hasGoogleCalendarAccess, connectGoogleCalendar } = useAuth();
   const userId = currentUser ? currentUser.uid : 'guest';
 
   const [data, setData] = useState<PaceAppData>(() => loadLocalData(userId));
   const [syncState, setSyncState] = useState<SyncState>(navigator.onLine ? 'online' : 'offline');
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [activeAlerts, setActiveAlerts] = useState<InAppAlertData[]>([]);
+
+  const dismissAlert = useCallback((id: string) => {
+    setActiveAlerts((prev) => prev.filter((a) => a.id !== id));
+  }, []);
+
+  const triggerInAppAlert = useCallback((alert: Omit<InAppAlertData, 'id'>) => {
+    const id = `alert_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
+    const newAlert: InAppAlertData = { ...alert, id };
+    setActiveAlerts((prev) => [newAlert, ...prev]);
+
+    // Automatically dismiss after 7 seconds
+    setTimeout(() => {
+      setActiveAlerts((prev) => prev.filter((a) => a.id !== id));
+    }, 7000);
+  }, []);
+  // Google Calendar Sync State
+  const [isGoogleSyncEnabled, setIsGoogleSyncEnabledState] = useState<boolean>(() => {
+    return localStorage.getItem('pace20_gcal_sync_enabled') === 'true' || Boolean(profile.googleCalendarSyncEnabled);
+  });
+  const [googleSyncStatus, setGoogleSyncStatus] = useState<GoogleSyncStatus>(() => {
+    const enabled = localStorage.getItem('pace20_gcal_sync_enabled') === 'true' || Boolean(profile.googleCalendarSyncEnabled);
+    return enabled ? 'active' : 'disconnected';
+  });
+  const [googleSyncError, setGoogleSyncError] = useState<string | null>(null);
+  const [lastGoogleSyncedAt, setLastGoogleSyncedAt] = useState<Date | null>(() => {
+    const saved = localStorage.getItem('pace20_gcal_last_synced') || profile.googleCalendarLastSyncedAt;
+    return saved ? new Date(saved) : null;
+  });
 
   // Keep local data in sync when switching user
   useEffect(() => {
@@ -184,7 +234,6 @@ export const PaceProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const currentMissions = [...data.missions];
 
     for (const rec of recurringMissions) {
-      // Check if mission was completed on a previous day and needs reopening for today
       if (rec.status === 'completed' && rec.completedAt && !rec.completedAt.startsWith(todayStr)) {
         const idx = currentMissions.findIndex((m) => m.id === rec.id);
         if (idx !== -1) {
@@ -205,6 +254,265 @@ export const PaceProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [data, persistData]);
 
+  // Bi-directional Google Calendar Sync Engine
+  const syncGoogleCalendar = useCallback(async (): Promise<{
+    imported: number;
+    exported: number;
+    matched: number;
+    alertsCreated: number;
+  }> => {
+    if (!navigator.onLine) {
+      setGoogleSyncStatus('error');
+      setGoogleSyncError('Network is offline. Reconnect to sync Google Calendar.');
+      throw new Error('Network offline');
+    }
+
+    setGoogleSyncStatus('syncing');
+    setGoogleSyncError(null);
+
+    try {
+      const googleEvents = await fetchGoogleCalendarEvents();
+      let imported = 0;
+      let exported = 0;
+      let matched = 0;
+      let alertsCreated = 0;
+
+      let updatedEvents = [...data.calendarEvents];
+      const newNotifications: NotificationItem[] = [];
+
+      // 1. PULL & DEDUPLICATE from Google Calendar
+      for (const gEvent of googleEvents) {
+        const gStart = gEvent.start.dateTime || gEvent.start.date || new Date().toISOString();
+        const gEnd = gEvent.end.dateTime || gEvent.end.date;
+        const gSummary = gEvent.summary?.trim() || 'Scheduled Activity';
+
+        // Check against existing local events using deduplication helper
+        const existingIdx = updatedEvents.findIndex((local) =>
+          isEventDuplicateOrMatch(gEvent, local)
+        );
+
+        if (existingIdx !== -1) {
+          // Event matches an existing local event!
+          // Ensure it's linked with googleEventId so it isn't duplicated or pushed again
+          if (!updatedEvents[existingIdx].googleEventId) {
+            updatedEvents[existingIdx] = {
+              ...updatedEvents[existingIdx],
+              googleEventId: gEvent.id,
+            };
+            matched++;
+          }
+        } else {
+          // New event pulled from Google Calendar!
+          let type: CalendarEvent['type'] = 'personal';
+          const lower = gSummary.toLowerCase();
+          if (lower.includes('exam') || lower.includes('test') || lower.includes('midterm') || lower.includes('quiz') || lower.includes('final')) {
+            type = 'exam';
+          } else if (lower.includes('due') || lower.includes('deadline') || lower.includes('assignment') || lower.includes('submit') || lower.includes('paper')) {
+            type = 'deadline';
+          } else if (lower.includes('train') || lower.includes('workout') || lower.includes('run') || lower.includes('meet') || lower.includes('race') || lower.includes('lift') || lower.includes('practice') || lower.includes('gym')) {
+            type = 'training';
+          } else if (lower.includes('study') || lower.includes('lecture') || lower.includes('class') || lower.includes('revision') || lower.includes('seminar')) {
+            type = 'study';
+          }
+
+          const newCalEvent: CalendarEvent = {
+            id: `cal_g_${gEvent.id}`,
+            userId,
+            title: gSummary,
+            notes: gEvent.description,
+            type,
+            startDate: gStart,
+            endDate: gEnd,
+            allDay: !gEvent.start.dateTime,
+            googleEventId: gEvent.id,
+            status: 'scheduled',
+            createdAt: new Date().toISOString(),
+          };
+
+          updatedEvents.push(newCalEvent);
+          imported++;
+
+          // Real-time Notification Trigger for Synced Google Events:
+          // Check criteria: upcoming training, deadline, or examination, or scheduled within 48h
+          const eventStartTime = new Date(gStart).getTime();
+          const nowTime = Date.now();
+          const diffHours = (eventStartTime - nowTime) / (1000 * 3600);
+
+          // Real-time Notification Trigger for Synced Google Events:
+          // If an event is categorized as 'training' or a 'deadline', trigger an in-app notification alert for the user
+          if (type === 'training' || type === 'deadline' || type === 'exam') {
+            const formattedTime = new Date(gStart).toLocaleTimeString([], {
+              hour: '2-digit',
+              minute: '2-digit',
+            });
+            const formattedDate = new Date(gStart).toLocaleDateString([], {
+              weekday: 'short',
+              month: 'short',
+              day: 'numeric',
+            });
+
+            const alertTitle =
+              type === 'training'
+                ? `Training Scheduled: ${gSummary}`
+                : type === 'deadline'
+                ? `Deadline Alert: ${gSummary}`
+                : `Exam Scheduled: ${gSummary}`;
+
+            const alertMsg =
+              type === 'training'
+                ? `Athletic training event imported from Google Calendar for ${formattedDate} at ${formattedTime}.`
+                : type === 'deadline'
+                ? `Academic deadline imported from Google Calendar for ${formattedDate} at ${formattedTime}.`
+                : `Examination alert imported from Google Calendar for ${formattedDate} at ${formattedTime}.`;
+
+            const alertItem: NotificationItem = {
+              id: `notif_g_${gEvent.id}_${Date.now()}`,
+              title: alertTitle,
+              message: alertMsg,
+              type: 'google_calendar',
+              date: gStart,
+              read: false,
+              linkTab: 'calendar',
+            };
+            newNotifications.push(alertItem);
+            alertsCreated++;
+
+            // Trigger immediate floating in-app notification alert banner for training or deadline
+            if (type === 'training' || type === 'deadline') {
+              triggerInAppAlert({
+                title: gSummary,
+                message: alertMsg,
+                category: type,
+                dateStr: formattedDate,
+                timeStr: formattedTime,
+              });
+            }
+
+            // Native browser notification if permitted
+            if ('Notification' in window && Notification.permission === 'granted') {
+              try {
+                new Notification(`PACE 2.0 • Google Calendar`, {
+                  body: `${alertTitle} (${formattedDate} ${formattedTime})`,
+                });
+              } catch {
+                // Ignore in sandbox
+              }
+            }
+          }
+        }
+      }
+
+      // 2. PUSH unsynced local events to Google Calendar (True Bi-directional Sync)
+      for (let i = 0; i < updatedEvents.length; i++) {
+        const evt = updatedEvents[i];
+        if (!evt.googleEventId && evt.status === 'scheduled') {
+          try {
+            const gId = await createGoogleCalendarEvent({
+              title: evt.title,
+              notes: evt.notes,
+              startDate: evt.startDate,
+              endDate: evt.endDate,
+              allDay: evt.allDay,
+            });
+            updatedEvents[i] = {
+              ...evt,
+              googleEventId: gId,
+            };
+            exported++;
+          } catch (pushErr) {
+            console.warn(`Could not export event "${evt.title}" to Google Calendar:`, pushErr);
+          }
+        }
+      }
+
+      // Update local & cloud state
+      persistData({ ...data, calendarEvents: updatedEvents });
+
+      if (newNotifications.length > 0) {
+        setNotifications((prev) => [...newNotifications, ...prev]);
+      }
+
+      const now = new Date();
+      setLastGoogleSyncedAt(now);
+      localStorage.setItem('pace20_gcal_last_synced', now.toISOString());
+      setGoogleSyncStatus('active');
+      setGoogleSyncError(null);
+
+      updateUserProfile({
+        googleCalendarSyncEnabled: true,
+        googleCalendarLastSyncedAt: now.toISOString(),
+      }).catch(() => {});
+
+      return { imported, exported, matched, alertsCreated };
+    } catch (err: any) {
+      console.error('Google Calendar Synchronization Error:', err);
+      setGoogleSyncStatus('error');
+      setGoogleSyncError(err.message || 'Google Calendar sync failed.');
+      throw err;
+    }
+  }, [data, userId, persistData, updateUserProfile]);
+
+  // Toggle Google Calendar Sync
+  const setGoogleSyncEnabled = async (enabled: boolean) => {
+    setIsGoogleSyncEnabledState(enabled);
+    localStorage.setItem('pace20_gcal_sync_enabled', enabled ? 'true' : 'false');
+    await updateUserProfile({ googleCalendarSyncEnabled: enabled });
+
+    if (enabled) {
+      if (!hasGoogleCalendarAccess) {
+        try {
+          const ok = await connectGoogleCalendar();
+          if (!ok) {
+            setIsGoogleSyncEnabledState(false);
+            localStorage.setItem('pace20_gcal_sync_enabled', 'false');
+            setGoogleSyncStatus('disconnected');
+            return;
+          }
+        } catch {
+          setIsGoogleSyncEnabledState(false);
+          localStorage.setItem('pace20_gcal_sync_enabled', 'false');
+          setGoogleSyncStatus('error');
+          setGoogleSyncError('Google authentication was cancelled or failed.');
+          return;
+        }
+      }
+
+      // Perform initial bi-directional sync
+      try {
+        await syncGoogleCalendar();
+      } catch (e: any) {
+        console.warn('Initial sync warning:', e);
+      }
+    } else {
+      setGoogleSyncStatus('disconnected');
+      setGoogleSyncError(null);
+    }
+  };
+
+  // Periodic and focus-based background sync when enabled
+  useEffect(() => {
+    if (!isGoogleSyncEnabled || !hasGoogleCalendarAccess) return;
+
+    // Trigger sync on boot/connect
+    syncGoogleCalendar().catch(() => {});
+
+    // Sync when user re-focuses tab
+    const handleFocus = () => {
+      syncGoogleCalendar().catch(() => {});
+    };
+
+    // Periodic 5-minute background pulse
+    const timer = setInterval(() => {
+      syncGoogleCalendar().catch(() => {});
+    }, 5 * 60 * 1000);
+
+    window.addEventListener('focus', handleFocus);
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      clearInterval(timer);
+    };
+  }, [isGoogleSyncEnabled, hasGoogleCalendarAccess, syncGoogleCalendar]);
+
   // Check upcoming notifications
   useEffect(() => {
     const generated: NotificationItem[] = [];
@@ -212,7 +520,6 @@ export const PaceProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const in24h = new Date(now.getTime() + 24 * 60 * 60 * 1000);
     const in48h = new Date(now.getTime() + 48 * 60 * 60 * 1000);
 
-    // Active missions due in 24 hours
     data.missions
       .filter((m) => m.status === 'active' && m.deadline)
       .forEach((m) => {
@@ -230,7 +537,6 @@ export const PaceProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       });
 
-    // Exams due in 48 hours
     data.calendarEvents
       .filter((c) => c.type === 'exam' && c.status === 'scheduled')
       .forEach((c) => {
@@ -248,7 +554,10 @@ export const PaceProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       });
 
-    setNotifications(generated);
+    setNotifications((prev) => {
+      const gcalNotifs = prev.filter((p) => p.type === 'google_calendar');
+      return [...gcalNotifs, ...generated];
+    });
   }, [data.missions, data.calendarEvents]);
 
   // Mission Actions
@@ -272,7 +581,6 @@ export const PaceProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (userId !== 'guest') {
       if (navigator.onLine) {
         setDoc(doc(db, 'users', userId, 'missions', id), mission).catch((err) => {
-          console.warn('Queueing mission offline:', err);
           queueMutation({ type: 'set', collectionName: 'missions', docId: id, userId, data: mission });
         });
       } else {
@@ -290,7 +598,7 @@ export const PaceProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const target = nextMissions.find((m) => m.id === id);
     if (userId !== 'guest' && target) {
       if (navigator.onLine) {
-        setDoc(doc(db, 'users', userId, 'missions', id), target, { merge: true }).catch((err) => {
+        setDoc(doc(db, 'users', userId, 'missions', id), target, { merge: true }).catch(() => {
           queueMutation({ type: 'set', collectionName: 'missions', docId: id, userId, data: target });
         });
       } else {
@@ -362,7 +670,6 @@ export const PaceProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const id = `tr_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
     const nowIso = new Date().toISOString();
 
-    // Check if this is a genuine personal best (PB)
     let isPB = recordData.isPersonalBest || false;
     if (recordData.metricValue && recordData.metricName) {
       const comparable = data.trainingRecords.filter(
@@ -373,7 +680,6 @@ export const PaceProvider: React.FC<{ children: React.ReactNode }> = ({ children
       );
 
       if (comparable.length > 0) {
-        // For speed/time trial, lower is better. For weights/distance/reps, higher is better.
         const isTimeTrial =
           recordData.eventType === 'time_trial' ||
           recordData.metricUnit?.toLowerCase().includes('sec') ||
@@ -388,7 +694,6 @@ export const PaceProvider: React.FC<{ children: React.ReactNode }> = ({ children
           triggerConfetti();
         }
       } else {
-        // First record in this metric is automatically baseline PB
         isPB = true;
       }
     }
@@ -529,12 +834,15 @@ export const PaceProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Calendar Actions
   const addCalendarEvent = async (
     eventData: Omit<CalendarEvent, 'id' | 'userId' | 'createdAt'>,
-    syncToGoogle: boolean = false
+    syncToGoogle?: boolean
   ) => {
     const id = `cal_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
     let googleEventId: string | undefined = undefined;
 
-    if (syncToGoogle) {
+    const shouldExportToGoogle =
+      syncToGoogle !== undefined ? syncToGoogle : (isGoogleSyncEnabled && hasGoogleCalendarAccess);
+
+    if (shouldExportToGoogle) {
       try {
         googleEventId = await createGoogleCalendarEvent({
           title: eventData.title,
@@ -577,7 +885,7 @@ export const PaceProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const target = data.calendarEvents.find((e) => e.id === id);
     if (!target) return;
 
-    if (target.googleEventId) {
+    if (target.googleEventId && isGoogleSyncEnabled) {
       try {
         await deleteGoogleCalendarEvent(target.googleEventId, target.title, userConfirmed);
       } catch (err) {
@@ -599,96 +907,78 @@ export const PaceProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const syncGoogleCalendar = async (): Promise<{ imported: number; exported: number }> => {
-    const googleEvents = await fetchGoogleCalendarEvents();
-    let imported = 0;
-    let exported = 0;
+  // Simulation helper to test imported events and the reactive notification trigger
+  const simulateImportedCalendarEvent = useCallback(
+    (category: 'training' | 'deadline') => {
+      const now = new Date();
+      const eventTime = new Date(now.getTime() + 24 * 3600 * 1000);
+      const formattedDate = eventTime.toLocaleDateString([], {
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric',
+      });
+      const formattedTime = eventTime.toLocaleTimeString([], {
+        hour: '2-digit',
+        minute: '2-digit',
+      });
 
-    const existingGoogleIds = new Set(
-      data.calendarEvents.map((e) => e.googleEventId).filter(Boolean)
-    );
+      const title =
+        category === 'training'
+          ? 'Velocity & Plyometrics Speed Training'
+          : 'Biomechanics Research Paper Submission';
 
-    const newImported: CalendarEvent[] = [];
+      const simulatedGId = `sim_g_${Date.now()}`;
+      const newCalEvent: CalendarEvent = {
+        id: `cal_g_${simulatedGId}`,
+        userId,
+        title,
+        notes: `Imported via Google Calendar sync engine [Simulated test]`,
+        type: category,
+        startDate: eventTime.toISOString(),
+        endDate: new Date(eventTime.getTime() + 90 * 60 * 1000).toISOString(),
+        allDay: false,
+        googleEventId: simulatedGId,
+        status: 'scheduled',
+        createdAt: new Date().toISOString(),
+      };
 
-    for (const gEvent of googleEvents) {
-      if (!existingGoogleIds.has(gEvent.id)) {
-        const start = gEvent.start.dateTime || gEvent.start.date || new Date().toISOString();
-        const end = gEvent.end.dateTime || gEvent.end.date;
+      const updatedEvents = [newCalEvent, ...data.calendarEvents];
+      persistData({ ...data, calendarEvents: updatedEvents });
 
-        let type: CalendarEvent['type'] = 'personal';
-        const lowerTitle = (gEvent.summary || '').toLowerCase();
-        if (lowerTitle.includes('exam') || lowerTitle.includes('test') || lowerTitle.includes('quiz')) {
-          type = 'exam';
-        } else if (lowerTitle.includes('due') || lowerTitle.includes('deadline') || lowerTitle.includes('assignment')) {
-          type = 'deadline';
-        } else if (lowerTitle.includes('train') || lowerTitle.includes('workout') || lowerTitle.includes('meet') || lowerTitle.includes('run')) {
-          type = 'training';
-        } else if (lowerTitle.includes('study') || lowerTitle.includes('lecture') || lowerTitle.includes('class')) {
-          type = 'study';
+      const alertItem: NotificationItem = {
+        id: `notif_g_${simulatedGId}`,
+        title: category === 'training' ? `Training Scheduled: ${title}` : `Deadline Alert: ${title}`,
+        message: `Imported from Google Calendar for ${formattedDate} at ${formattedTime}.`,
+        type: 'google_calendar',
+        date: eventTime.toISOString(),
+        read: false,
+        linkTab: 'calendar',
+      };
+      setNotifications((prev) => [alertItem, ...prev]);
+
+      triggerInAppAlert({
+        title,
+        message:
+          category === 'training'
+            ? `Athletic training event imported from Google Calendar for ${formattedDate} at ${formattedTime}.`
+            : `Academic deadline imported from Google Calendar for ${formattedDate} at ${formattedTime}.`,
+        category,
+        dateStr: formattedDate,
+        timeStr: formattedTime,
+      });
+
+      if ('Notification' in window && Notification.permission === 'granted') {
+        try {
+          new Notification(`PACE 2.0 • Google Calendar`, {
+            body: `${category === 'training' ? 'Training Scheduled' : 'Deadline Alert'}: ${title} (${formattedDate} ${formattedTime})`,
+          });
+        } catch {
+          // Ignore
         }
-
-        newImported.push({
-          id: `cal_g_${gEvent.id}`,
-          userId,
-          title: gEvent.summary || 'Google Calendar Event',
-          notes: gEvent.description,
-          type,
-          startDate: start,
-          endDate: end,
-          allDay: !gEvent.start.dateTime,
-          googleEventId: gEvent.id,
-          status: 'scheduled',
-          createdAt: new Date().toISOString(),
-        });
-        imported++;
       }
-    }
-
-    if (newImported.length > 0) {
-      persistData({ ...data, calendarEvents: [...newImported, ...data.calendarEvents] });
-    }
-
-    return { imported, exported };
-  };
-
-  // Vision Actions
-  const addVisionPoster = async (poster: Omit<VisionPoster, 'id' | 'userId' | 'createdAt'>) => {
-    const id = `vp_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
-    const newPoster: VisionPoster = {
-      ...poster,
-      id,
-      userId,
-      createdAt: new Date().toISOString(),
-    };
-
-    const next = [newPoster, ...data.visionPosters];
-    persistData({ ...data, visionPosters: next });
-
-    if (userId !== 'guest') {
-      if (navigator.onLine) {
-        setDoc(doc(db, 'users', userId, 'visionPosters', id), newPoster).catch(() => {
-          queueMutation({ type: 'set', collectionName: 'visionPosters', docId: id, userId, data: newPoster });
-        });
-      } else {
-        queueMutation({ type: 'set', collectionName: 'visionPosters', docId: id, userId, data: newPoster });
-      }
-    }
-  };
-
-  const deleteVisionPoster = async (id: string) => {
-    const next = data.visionPosters.filter((v) => v.id !== id);
-    persistData({ ...data, visionPosters: next });
-
-    if (userId !== 'guest') {
-      if (navigator.onLine) {
-        deleteDoc(doc(db, 'users', userId, 'visionPosters', id)).catch(() => {
-          queueMutation({ type: 'delete', collectionName: 'visionPosters', docId: id, userId });
-        });
-      } else {
-        queueMutation({ type: 'delete', collectionName: 'visionPosters', docId: id, userId });
-      }
-    }
-  };
+    },
+    [data, userId, persistData, triggerInAppAlert]
+  );
 
   // Notifications
   const markNotificationRead = (id: string) => {
@@ -737,7 +1027,38 @@ export const PaceProvider: React.FC<{ children: React.ReactNode }> = ({ children
       .reduce((sum, s) => sum + s.durationMinutes, 0);
   }, [data.studySessions, todayStr]);
 
-  // Streak calculation (actual activity check per day)
+  const {
+    todayTrainingMinutes,
+    todayTrainingCount,
+    todayTrainingGoalMinutes,
+    todayTrainingPercentage,
+    todayScheduledTrainingCount,
+  } = useMemo(() => {
+    const records = data.trainingRecords.filter((t) => t.date === todayStr);
+    const minutes = records.reduce((sum, t) => sum + t.durationMinutes, 0);
+    const scheduled = data.calendarEvents.filter(
+      (e) => e.startDate.startsWith(todayStr) && e.type === 'training'
+    );
+    const goalMins = profile.dailyGoalTrainingMinutes || 60;
+
+    let pct = 0;
+    if (goalMins > 0) {
+      pct = Math.round((minutes / goalMins) * 100);
+    } else if (records.length > 0) {
+      pct = 100;
+    }
+    const clampedPct = Math.min(100, Math.max(0, pct));
+
+    return {
+      todayTrainingMinutes: minutes,
+      todayTrainingCount: records.length,
+      todayTrainingGoalMinutes: goalMins,
+      todayTrainingPercentage: clampedPct,
+      todayScheduledTrainingCount: scheduled.length,
+    };
+  }, [data.trainingRecords, data.calendarEvents, todayStr, profile.dailyGoalTrainingMinutes]);
+
+  // Streak calculation
   const { currentStreak, longestStreak } = useMemo(() => {
     const activityDays = new Set<string>();
 
@@ -752,13 +1073,11 @@ export const PaceProvider: React.FC<{ children: React.ReactNode }> = ({ children
     let longest = 0;
     let tempStreak = 0;
 
-    // Check today or yesterday
     const today = new Date();
     const todayKey = today.toISOString().slice(0, 10);
     const yesterday = new Date(today.getTime() - 86400000);
     const yesterdayKey = yesterday.toISOString().slice(0, 10);
 
-    // Scan backwards from today/yesterday for current streak
     let cursor = activityDays.has(todayKey) ? today : activityDays.has(yesterdayKey) ? yesterday : null;
 
     if (cursor) {
@@ -774,7 +1093,6 @@ export const PaceProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     }
 
-    // Longest streak calculation over sorted days
     const sortedDays = Array.from(activityDays).sort();
     if (sortedDays.length > 0) {
       tempStreak = 1;
@@ -817,7 +1135,6 @@ export const PaceProvider: React.FC<{ children: React.ReactNode }> = ({ children
         (e) => e.startDate.startsWith(dateStr) && e.status === 'completed'
       ).length;
 
-      // Intensity score (0 to 3)
       let score = mCount * 1 + Math.floor(sMins / 45) * 1 + Math.floor(tMins / 30) * 2 + eCount * 1;
       let level = 0;
       if (score >= 4) level = 3;
@@ -837,14 +1154,12 @@ export const PaceProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return days;
   }, [data.missions, data.studySessions, data.trainingRecords, data.calendarEvents]);
 
-  // 30-day Consistency Score (0-100%)
   const consistencyScore = useMemo(() => {
     const last30 = heatMapData.slice(-30);
     const activeDays = last30.filter((d) => d.level > 0).length;
     return Math.round((activeDays / 30) * 100);
   }, [heatMapData]);
 
-  // Upcoming deadlines and exams (next 14 days)
   const upcomingDeadlinesAndExams = useMemo(() => {
     const now = new Date();
     const in14Days = new Date(now.getTime() + 14 * 86400000);
@@ -857,7 +1172,6 @@ export const PaceProvider: React.FC<{ children: React.ReactNode }> = ({ children
       .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
   }, [data.calendarEvents]);
 
-  // Recent PBs
   const recentPBs = useMemo(() => {
     return data.trainingRecords.filter((t) => t.isPersonalBest).slice(0, 5);
   }, [data.trainingRecords]);
@@ -896,42 +1210,68 @@ export const PaceProvider: React.FC<{ children: React.ReactNode }> = ({ children
         studySessions: data.studySessions,
         subjects: data.subjects,
         calendarEvents: data.calendarEvents,
-        visionPosters: data.visionPosters,
         notifications,
         unreadNotificationsCount: notifications.filter((n) => !n.read).length,
+        activeAlerts,
+        dismissAlert,
+        simulateImportedCalendarEvent,
         syncState,
         lastSyncedAt,
         triggerManualSync,
+
+        // Google Calendar Sync
+        googleSyncStatus,
+        googleSyncError,
+        lastGoogleSyncedAt,
+        isGoogleSyncEnabled,
+        setGoogleSyncEnabled,
+        syncGoogleCalendar,
+
+        // Missions
         addMission,
         updateMission,
         toggleMissionComplete,
         archiveMission,
         deleteMission,
+
+        // Training
         addTrainingRecord,
         deleteTrainingRecord,
+
+        // Study
         addStudySession,
         deleteStudySession,
         addSubject,
         updateSubject,
         deleteSubject,
+
+        // Calendar
         addCalendarEvent,
         deleteCalendarEvent,
-        syncGoogleCalendar,
-        addVisionPoster,
-        deleteVisionPoster,
+
+        // Notifications
         markNotificationRead,
         clearAllNotifications,
         requestBrowserNotifications,
+
+        // Computed
         todayCompletedMissions,
         todayTotalMissions,
         todayMissionPercentage,
         todayStudyMinutes,
+        todayTrainingMinutes,
+        todayTrainingCount,
+        todayTrainingGoalMinutes,
+        todayTrainingPercentage,
+        todayScheduledTrainingCount,
         currentStreak,
         longestStreak,
         consistencyScore,
         heatMapData,
         upcomingDeadlinesAndExams,
         recentPBs,
+
+        // Backup
         exportAppDataJson,
         importAppDataJson,
         resetToDefaultData,
