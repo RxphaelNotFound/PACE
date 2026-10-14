@@ -1,0 +1,8 @@
+{
+  "name": "PACE 2.0",
+  "description": "A premium personal productivity and athletic performance command centre for students and athletes to manage missions, study, training, and schedule.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

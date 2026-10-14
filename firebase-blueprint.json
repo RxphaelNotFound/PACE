@@ -1,0 +1,163 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User profile and preferences",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "maxLength": 128 },
+        "displayName": { "type": "string", "maxLength": 100 },
+        "email": { "type": "string", "maxLength": 150 },
+        "goals": { "type": "string", "maxLength": 500 },
+        "primaryFocus": { "type": "string", "maxLength": 50 },
+        "dailyGoalMissions": { "type": "number" },
+        "dailyGoalStudyMinutes": { "type": "number" },
+        "notificationsEnabled": { "type": "boolean" },
+        "createdAt": { "type": "string", "maxLength": 64 },
+        "updatedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["userId", "displayName"]
+    },
+    "Mission": {
+      "title": "Mission",
+      "description": "A productivity task or athletic habit",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 200 },
+        "description": { "type": "string", "maxLength": 1000 },
+        "category": { "type": "string", "enum": ["Personal", "Study", "Training", "Wellbeing"] },
+        "priority": { "type": "string", "enum": ["low", "medium", "high"] },
+        "status": { "type": "string", "enum": ["active", "completed", "archived"] },
+        "deadline": { "type": "string", "maxLength": 64 },
+        "recurrence": { "type": "string", "enum": ["none", "daily", "weekly"] },
+        "completedAt": { "type": "string", "maxLength": 64 },
+        "createdAt": { "type": "string", "maxLength": 64 },
+        "updatedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "userId", "title", "category", "priority", "status"]
+    },
+    "TrainingRecord": {
+      "title": "TrainingRecord",
+      "description": "Athletic performance record or training log",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "sport": { "type": "string", "maxLength": 60 },
+        "title": { "type": "string", "maxLength": 200 },
+        "eventType": { "type": "string", "enum": ["session", "event", "competition", "time_trial"] },
+        "date": { "type": "string", "maxLength": 30 },
+        "durationMinutes": { "type": "number" },
+        "metricName": { "type": "string", "maxLength": 50 },
+        "metricValue": { "type": "number" },
+        "metricUnit": { "type": "string", "maxLength": 30 },
+        "isPersonalBest": { "type": "boolean" },
+        "notes": { "type": "string", "maxLength": 1000 },
+        "intensity": { "type": "number" },
+        "createdAt": { "type": "string", "maxLength": 64 },
+        "updatedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "userId", "sport", "title", "date", "durationMinutes"]
+    },
+    "StudySession": {
+      "title": "StudySession",
+      "description": "An academic study session entry",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "subjectId": { "type": "string", "maxLength": 128 },
+        "subjectName": { "type": "string", "maxLength": 100 },
+        "topic": { "type": "string", "maxLength": 200 },
+        "durationMinutes": { "type": "number" },
+        "date": { "type": "string", "maxLength": 30 },
+        "notes": { "type": "string", "maxLength": 1000 },
+        "sessionType": { "type": "string", "enum": ["revision", "assignment", "lecture", "exam_prep"] },
+        "createdAt": { "type": "string", "maxLength": 64 },
+        "updatedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "userId", "subjectName", "durationMinutes", "date"]
+    },
+    "Subject": {
+      "title": "Subject",
+      "description": "Academic course or subject",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 100 },
+        "code": { "type": "string", "maxLength": 30 },
+        "color": { "type": "string", "maxLength": 30 },
+        "targetWeeklyHours": { "type": "number" },
+        "createdAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "userId", "name"]
+    },
+    "CalendarEvent": {
+      "title": "CalendarEvent",
+      "description": "Scheduled exam, deadline, training, or study event",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 200 },
+        "type": { "type": "string", "enum": ["exam", "deadline", "training", "study", "personal"] },
+        "startDate": { "type": "string", "maxLength": 64 },
+        "endDate": { "type": "string", "maxLength": 64 },
+        "allDay": { "type": "boolean" },
+        "notes": { "type": "string", "maxLength": 1000 },
+        "googleEventId": { "type": "string", "maxLength": 150 },
+        "status": { "type": "string", "enum": ["scheduled", "completed", "cancelled"] },
+        "createdAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "userId", "title", "type", "startDate", "status"]
+    },
+    "VisionPoster": {
+      "title": "VisionPoster",
+      "description": "AI-generated athletic motivation and focus poster",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 150 },
+        "prompt": { "type": "string", "maxLength": 500 },
+        "aspectRatio": { "type": "string", "maxLength": 20 },
+        "imageUrl": { "type": "string", "maxLength": 200000 },
+        "createdAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "userId", "title", "imageUrl"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profile document"
+    },
+    "/users/{userId}/missions/{missionId}": {
+      "schema": "Mission",
+      "description": "User missions, tasks and habits"
+    },
+    "/users/{userId}/trainingRecords/{recordId}": {
+      "schema": "TrainingRecord",
+      "description": "Athletic workouts, events, and performance records"
+    },
+    "/users/{userId}/studySessions/{sessionId}": {
+      "schema": "StudySession",
+      "description": "Academic study logs"
+    },
+    "/users/{userId}/subjects/{subjectId}": {
+      "schema": "Subject",
+      "description": "Academic subjects created by user"
+    },
+    "/users/{userId}/calendarEvents/{eventId}": {
+      "schema": "CalendarEvent",
+      "description": "Calendar events, exams, deadlines, and schedule"
+    },
+    "/users/{userId}/visionPosters/{posterId}": {
+      "schema": "VisionPoster",
+      "description": "Saved AI motivation posters and focus cards"
+    }
+  }
+}
